@@ -9,15 +9,18 @@ from sklearn.impute import SimpleImputer
 
 st.set_page_config(page_title="Transit Delay Predictor", layout="centered")
 st.title("🚌 Public Transit Delay Predictor")
-st.write("Enter the key route parameters below to predict the delay probability.")
+st.write("Enter the route details below to predict delay probability.")
 
 BASE_DIR = Path(__file__).resolve().parent
 
-# List of unwanted columns to ignore completely
-COLS_TO_DROP = [
-    'holidays', 'holiday', 'tripid', 'trip_id', 'date', 'time', 
-    'original_station', 'scheduled_arrival', 'departure_station', 
-    'scheduled_departure', 'season'
+# STRICT ALLOWLIST: EXACT MATCH ONLY
+EXACT_FEATURES = [
+    'event', 
+    'weather_condition', 
+    'route_id', 
+    'transport_type', 
+    'peak_hour', 
+    'day_of_week'
 ]
 
 @st.cache_resource
@@ -25,13 +28,18 @@ def load_trained_pipeline():
     data_path = BASE_DIR / "public_transport_delays.csv"
     df = pd.read_csv(data_path)
     
-    # Drop unwanted columns case-insensitively if present
-    cols_in_df_to_drop = [c for c in df.columns if c.lower() in COLS_TO_DROP]
-    df = df.drop(columns=cols_in_df_to_drop)
-    
+    # Identify target column
     target_col = 'delay' if 'delay' in df.columns else df.columns[-1]
     
-    X = df.drop(columns=[target_col])
+    # Filter dataset strictly to allowed features + target column
+    available_features = [col for col in EXACT_FEATURES if col in df.columns]
+    
+    # Fallback case-insensitive check if column names vary slightly in CSV
+    if len(available_features) < len(EXACT_FEATURES):
+        df_cols_lower = {c.lower().replace(" ", "_"): c for c in df.columns}
+        available_features = [df_cols_lower[f] for f in EXACT_FEATURES if f in df_cols_lower]
+
+    X = df[available_features]
     y = df[target_col]
     
     numeric_features = X.select_dtypes(include=['int64', 'float64', 'int32']).columns.tolist()
@@ -66,24 +74,24 @@ model_pipeline, X_df, num_cols, cat_cols = load_trained_pipeline()
 st.subheader("Route Parameters")
 input_data = {}
 
+# Display Categorical Options
+for col in cat_cols:
+    unique_opts = X_df[col].dropna().unique().tolist()
+    input_data[col] = st.selectbox(f"{col}", options=unique_opts)
+
+# Display Numerical Options
 for col in num_cols:
     min_val = int(X_df[col].min())
     max_val = int(X_df[col].max())
     mean_val = int(X_df[col].mean())
     col_lower = col.lower()
 
-    if 'hour' in col_lower:
-        input_data[col] = st.number_input(f"{col} (0-23)", min_value=0, max_value=23, value=min(mean_val, 23), step=1)
-    elif 'dayofweek' in col_lower or 'day_of_week' in col_lower:
+    if 'day' in col_lower:
         input_data[col] = st.number_input(f"{col} (0=Mon, 6=Sun)", min_value=0, max_value=6, value=min(mean_val, 6), step=1)
-    elif 'month' in col_lower:
-        input_data[col] = st.number_input(f"{col} (1-12)", min_value=1, max_value=12, value=min(mean_val, 12), step=1)
+    elif 'peak' in col_lower:
+        input_data[col] = st.number_input(f"{col} (0=No, 1=Yes)", min_value=0, max_value=1, value=min(mean_val, 1), step=1)
     else:
         input_data[col] = st.number_input(f"{col}", min_value=min_val, max_value=max_val, value=mean_val, step=1)
-
-for col in cat_cols:
-    unique_opts = X_df[col].dropna().unique().tolist()
-    input_data[col] = st.selectbox(f"{col}", options=unique_opts)
 
 # Prediction Execution
 if st.button("Predict Delay Probability", type="primary"):
