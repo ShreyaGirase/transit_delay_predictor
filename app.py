@@ -9,14 +9,25 @@ from sklearn.impute import SimpleImputer
 
 st.set_page_config(page_title="Transit Delay Predictor", layout="centered")
 st.title("🚌 Public Transit Delay Predictor")
-st.write("Enter the route details below to predict the probability of a delay.")
+st.write("Enter the key route parameters below to predict the delay probability.")
 
 BASE_DIR = Path(__file__).resolve().parent
+
+# List of unwanted columns to ignore completely
+COLS_TO_DROP = [
+    'holidays', 'holiday', 'tripid', 'trip_id', 'date', 'time', 
+    'original_station', 'scheduled_arrival', 'departure_station', 
+    'scheduled_departure', 'season'
+]
 
 @st.cache_resource
 def load_trained_pipeline():
     data_path = BASE_DIR / "public_transport_delays.csv"
     df = pd.read_csv(data_path)
+    
+    # Drop unwanted columns case-insensitively if present
+    cols_in_df_to_drop = [c for c in df.columns if c.lower() in COLS_TO_DROP]
+    df = df.drop(columns=cols_in_df_to_drop)
     
     target_col = 'delay' if 'delay' in df.columns else df.columns[-1]
     
@@ -61,7 +72,6 @@ for col in num_cols:
     mean_val = int(X_df[col].mean())
     col_lower = col.lower()
 
-    # Enforce specific bounds and integer steps based on column names
     if 'hour' in col_lower:
         input_data[col] = st.number_input(f"{col} (0-23)", min_value=0, max_value=23, value=min(mean_val, 23), step=1)
     elif 'dayofweek' in col_lower or 'day_of_week' in col_lower:
@@ -69,7 +79,6 @@ for col in num_cols:
     elif 'month' in col_lower:
         input_data[col] = st.number_input(f"{col} (1-12)", min_value=1, max_value=12, value=min(mean_val, 12), step=1)
     else:
-        # Standard integer input for general counts
         input_data[col] = st.number_input(f"{col}", min_value=min_val, max_value=max_val, value=mean_val, step=1)
 
 for col in cat_cols:
@@ -80,7 +89,6 @@ for col in cat_cols:
 if st.button("Predict Delay Probability", type="primary"):
     input_df = pd.DataFrame([input_data])
     
-    # Calculate exact probability of delay (Class 1)
     probabilities = model_pipeline.predict_proba(input_df)[0]
     delay_prob = probabilities[1] * 100 if len(probabilities) > 1 else probabilities[0] * 100
     
