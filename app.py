@@ -4,12 +4,12 @@ from pathlib import Path
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.pipeline import Pipeline
-from sklearn.ensemble import RandomForestRegressor
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.impute import SimpleImputer
 
 st.set_page_config(page_title="Transit Delay Predictor", layout="centered")
 st.title("🚌 Public Transit Delay Predictor")
-st.write("Enter the route details below to estimate the exact delay time in minutes.")
+st.write("Enter the route details below to predict the probability of a delay.")
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -18,7 +18,6 @@ def load_trained_pipeline():
     data_path = BASE_DIR / "public_transport_delays.csv"
     df = pd.read_csv(data_path)
     
-    # Target column (delay duration in minutes)
     target_col = 'delay' if 'delay' in df.columns else df.columns[-1]
     
     X = df.drop(columns=[target_col])
@@ -42,10 +41,9 @@ def load_trained_pipeline():
         ('cat', cat_pipeline, categorical_features)
     ])
 
-    # Regressor outputs exact continuous values
     full_pipeline = Pipeline([
         ('preprocessor', preprocessor),
-        ('model', RandomForestRegressor(n_estimators=100, random_state=42))
+        ('model', RandomForestClassifier(n_estimators=100, random_state=42))
     ])
 
     full_pipeline.fit(X, y)
@@ -58,23 +56,39 @@ st.subheader("Route Parameters")
 input_data = {}
 
 for col in num_cols:
-    min_val = float(X_df[col].min())
-    max_val = float(X_df[col].max())
-    mean_val = float(X_df[col].mean())
-    input_data[col] = st.number_input(f"{col}", min_value=min_val, max_value=max_val, value=mean_val)
+    min_val = int(X_df[col].min())
+    max_val = int(X_df[col].max())
+    mean_val = int(X_df[col].mean())
+    col_lower = col.lower()
+
+    # Enforce specific bounds and integer steps based on column names
+    if 'hour' in col_lower:
+        input_data[col] = st.number_input(f"{col} (0-23)", min_value=0, max_value=23, value=min(mean_val, 23), step=1)
+    elif 'dayofweek' in col_lower or 'day_of_week' in col_lower:
+        input_data[col] = st.number_input(f"{col} (0=Mon, 6=Sun)", min_value=0, max_value=6, value=min(mean_val, 6), step=1)
+    elif 'month' in col_lower:
+        input_data[col] = st.number_input(f"{col} (1-12)", min_value=1, max_value=12, value=min(mean_val, 12), step=1)
+    else:
+        # Standard integer input for general counts
+        input_data[col] = st.number_input(f"{col}", min_value=min_val, max_value=max_val, value=mean_val, step=1)
 
 for col in cat_cols:
     unique_opts = X_df[col].dropna().unique().tolist()
     input_data[col] = st.selectbox(f"{col}", options=unique_opts)
 
-# Prediction execution
-if st.button("Predict Delay", type="primary"):
+# Prediction Execution
+if st.button("Predict Delay Probability", type="primary"):
     input_df = pd.DataFrame([input_data])
-    predicted_delay = model_pipeline.predict(input_df)[0]
+    
+    # Calculate exact probability of delay (Class 1)
+    probabilities = model_pipeline.predict_proba(input_df)[0]
+    delay_prob = probabilities[1] * 100 if len(probabilities) > 1 else probabilities[0] * 100
     
     st.markdown("---")
-    # Display precise numerical output formatted to 1 decimal place
-    if predicted_delay > 0:
-        st.metric(label="Estimated Delay Duration", value=f"{predicted_delay:.1f} mins")
+    st.metric(label="Delay Probability", value=f"{delay_prob:.1f}%")
+    st.progress(int(delay_prob))
+
+    if delay_prob >= 50:
+        st.warning("⚠️ **High Risk:** High chance of delay under these route conditions.")
     else:
-        st.metric(label="Estimated Delay Duration", value="0.0 mins (On Time)")
+        st.success("✅ **Low Risk:** Route is expected to run on schedule.")
