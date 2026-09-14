@@ -12,10 +12,9 @@ st.title("Transit Delay Predictor")
 
 BASE_DIR = Path(__file__).resolve().parent
 
-# Features expected by your initial UI design
+# Features expected by the updated UI design (traffic_congestion_index removed)
 FEATURE_COLS = [
     "temperature_C",
-    "traffic_congestion_index",
     "hour",
     "day_of_week",
     "event_attendance_est",
@@ -30,14 +29,16 @@ def load_trained_pipeline():
     data_path = BASE_DIR / "public_transport_delays.csv"
     df = pd.read_csv(data_path)
     
-    # Identify target column ('delay')
     target_col = 'delay' if 'delay' in df.columns else df.columns[-1]
     
-    # Use only the specific features present in your original code
+    # Filter features to present columns
     available_features = [col for col in FEATURE_COLS if col in df.columns]
     
-    X = df[available_features]
+    X = df[available_features].copy()
     y = df[target_col]
+    
+    # Extract unique route IDs for dropdown options
+    unique_routes = sorted(df['route_id'].dropna().unique().tolist()) if 'route_id' in df.columns else ["R01", "R02", "R03"]
     
     numeric_features = X.select_dtypes(include=['int64', 'float64', 'int32']).columns.tolist()
     categorical_features = X.select_dtypes(include=['object', 'category']).columns.tolist()
@@ -63,30 +64,34 @@ def load_trained_pipeline():
     ])
 
     full_pipeline.fit(X, y)
-    return full_pipeline
+    return full_pipeline, unique_routes
 
-# Train pipeline directly in memory at runtime
-model_pipeline = load_trained_pipeline()
+# Load trained pipeline and dynamic route list
+model_pipeline, route_options = load_trained_pipeline()
 
-# --- ORIGINAL UI INPUTS ---
+# --- UI INPUTS ---
 temperature_C = st.number_input("Temperature (°C)", value=22.5)
-traffic_congestion_index = st.number_input("Traffic Congestion Index", value=7.5)
 hour = st.slider("Hour of Day", 0, 23, 17)
 day_of_week = st.slider("Day of Week (0=Mon, 6=Sun)", 0, 6, 2)
-event_attendance_est = st.number_input("Estimated Event Attendance", value=5000.0)
-transport_type = st.selectbox("Transport Type", ["Bus", "Train", "Tram"])
+
+# Event attendance in Percentage
+event_attendance_pct = st.slider("Estimated Event Attendance (%)", min_value=0, max_value=100, value=50, step=1)
+
+# Transport type with Metro included
+transport_type = st.selectbox("Transport Type", ["Bus", "Train", "Tram", "Metro"])
 weather_condition = st.selectbox("Weather Condition", ["Clear", "Rain", "Snow", "Fog"])
 event_type = st.selectbox("Event Type", ["None", "Concert", "Sports", "Festival"])
-route_id = st.text_input("Route ID", value="R01")
+
+# Dropdown for Route ID
+route_id = st.selectbox("Route ID", route_options)
 
 # --- PREDICTION EXECUTION ---
 if st.button("Predict Delay"):
     input_df = pd.DataFrame([{
         "temperature_C": temperature_C,
-        "traffic_congestion_index": traffic_congestion_index,
         "hour": hour,
         "day_of_week": day_of_week,
-        "event_attendance_est": event_attendance_est,
+        "event_attendance_est": float(event_attendance_pct) / 100.0,
         "transport_type": transport_type,
         "weather_condition": weather_condition,
         "event_type": event_type,
