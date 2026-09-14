@@ -1,14 +1,20 @@
 import streamlit as st
 import pandas as pd
+from pathlib import Path
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.ensemble import RandomForestClassifier
 
+# Get directory where app.py lives
+BASE_DIR = Path(__file__).resolve().parent
+
 @st.cache_resource
 def load_trained_pipeline():
-    df = pd.read_csv("public_transport_delays.csv")
+    # Load dataset using path relative to app.py
+    data_path = BASE_DIR / "public_transport_delays.csv"
+    df = pd.read_csv(data_path)
 
     numeric_features = ['temperature_C', 'humidity_percent', 'wind_speed_kmh',
                          'precipitation_mm', 'traffic_congestion_index',
