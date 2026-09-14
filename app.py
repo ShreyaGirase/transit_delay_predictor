@@ -4,12 +4,12 @@ from pathlib import Path
 from sklearn.compose import ColumnTransformer
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.pipeline import Pipeline
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import RandomForestRegressor
 from sklearn.impute import SimpleImputer
 
 st.set_page_config(page_title="Transit Delay Predictor", layout="centered")
 st.title("🚌 Public Transit Delay Predictor")
-st.write("Enter the route details below to predict if the transit run will be delayed.")
+st.write("Enter the route details below to estimate the exact delay time in minutes.")
 
 BASE_DIR = Path(__file__).resolve().parent
 
@@ -18,6 +18,7 @@ def load_trained_pipeline():
     data_path = BASE_DIR / "public_transport_delays.csv"
     df = pd.read_csv(data_path)
     
+    # Target column (delay duration in minutes)
     target_col = 'delay' if 'delay' in df.columns else df.columns[-1]
     
     X = df.drop(columns=[target_col])
@@ -41,29 +42,27 @@ def load_trained_pipeline():
         ('cat', cat_pipeline, categorical_features)
     ])
 
+    # Regressor outputs exact continuous values
     full_pipeline = Pipeline([
         ('preprocessor', preprocessor),
-        ('model', RandomForestClassifier(n_estimators=100, random_state=42))
+        ('model', RandomForestRegressor(n_estimators=100, random_state=42))
     ])
 
     full_pipeline.fit(X, y)
     return full_pipeline, X, numeric_features, categorical_features
 
-# Load pipeline and dataset features
 model_pipeline, X_df, num_cols, cat_cols = load_trained_pipeline()
 
 # --- UI INPUT FORM ---
 st.subheader("Route Parameters")
 input_data = {}
 
-# Build dynamic inputs for numerical columns
 for col in num_cols:
     min_val = float(X_df[col].min())
     max_val = float(X_df[col].max())
     mean_val = float(X_df[col].mean())
     input_data[col] = st.number_input(f"{col}", min_value=min_val, max_value=max_val, value=mean_val)
 
-# Build dynamic inputs for categorical columns
 for col in cat_cols:
     unique_opts = X_df[col].dropna().unique().tolist()
     input_data[col] = st.selectbox(f"{col}", options=unique_opts)
@@ -71,10 +70,11 @@ for col in cat_cols:
 # Prediction execution
 if st.button("Predict Delay", type="primary"):
     input_df = pd.DataFrame([input_data])
-    prediction = model_pipeline.predict(input_df)[0]
+    predicted_delay = model_pipeline.predict(input_df)[0]
     
     st.markdown("---")
-    if prediction == 1 or str(prediction).lower() in ['delayed', 'yes', 'true']:
-        st.error("🚨 **Prediction:** High likelihood of DELAY for this route.")
+    # Display precise numerical output formatted to 1 decimal place
+    if predicted_delay > 0:
+        st.metric(label="Estimated Delay Duration", value=f"{predicted_delay:.1f} mins")
     else:
-        st.success("✅ **Prediction:** On Schedule / Minimal Delay expected.")
+        st.metric(label="Estimated Delay Duration", value="0.0 mins (On Time)")
