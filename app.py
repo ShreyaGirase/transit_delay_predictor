@@ -8,19 +8,21 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.impute import SimpleImputer
 
 st.set_page_config(page_title="Transit Delay Predictor", layout="centered")
-st.title("🚌 Public Transit Delay Predictor")
-st.write("Enter the route details below to predict delay probability.")
+st.title("Transit Delay Predictor")
 
 BASE_DIR = Path(__file__).resolve().parent
 
-# STRICT ALLOWLIST: EXACT MATCH ONLY
-EXACT_FEATURES = [
-    'event', 
-    'weather_condition', 
-    'route_id', 
-    'transport_type', 
-    'peak_hour', 
-    'day_of_week'
+# Features expected by your initial UI design
+FEATURE_COLS = [
+    "temperature_C",
+    "traffic_congestion_index",
+    "hour",
+    "day_of_week",
+    "event_attendance_est",
+    "transport_type",
+    "weather_condition",
+    "event_type",
+    "route_id"
 ]
 
 @st.cache_resource
@@ -28,17 +30,12 @@ def load_trained_pipeline():
     data_path = BASE_DIR / "public_transport_delays.csv"
     df = pd.read_csv(data_path)
     
-    # Identify target column
+    # Identify target column ('delay')
     target_col = 'delay' if 'delay' in df.columns else df.columns[-1]
     
-    # Filter dataset strictly to allowed features + target column
-    available_features = [col for col in EXACT_FEATURES if col in df.columns]
+    # Use only the specific features present in your original code
+    available_features = [col for col in FEATURE_COLS if col in df.columns]
     
-    # Fallback case-insensitive check if column names vary slightly in CSV
-    if len(available_features) < len(EXACT_FEATURES):
-        df_cols_lower = {c.lower().replace(" ", "_"): c for c in df.columns}
-        available_features = [df_cols_lower[f] for f in EXACT_FEATURES if f in df_cols_lower]
-
     X = df[available_features]
     y = df[target_col]
     
@@ -66,45 +63,38 @@ def load_trained_pipeline():
     ])
 
     full_pipeline.fit(X, y)
-    return full_pipeline, X, numeric_features, categorical_features
+    return full_pipeline
 
-model_pipeline, X_df, num_cols, cat_cols = load_trained_pipeline()
+# Train pipeline directly in memory at runtime
+model_pipeline = load_trained_pipeline()
 
-# --- UI INPUT FORM ---
-st.subheader("Route Parameters")
-input_data = {}
+# --- ORIGINAL UI INPUTS ---
+temperature_C = st.number_input("Temperature (°C)", value=22.5)
+traffic_congestion_index = st.number_input("Traffic Congestion Index", value=7.5)
+hour = st.slider("Hour of Day", 0, 23, 17)
+day_of_week = st.slider("Day of Week (0=Mon, 6=Sun)", 0, 6, 2)
+event_attendance_est = st.number_input("Estimated Event Attendance", value=5000.0)
+transport_type = st.selectbox("Transport Type", ["Bus", "Train", "Tram"])
+weather_condition = st.selectbox("Weather Condition", ["Clear", "Rain", "Snow", "Fog"])
+event_type = st.selectbox("Event Type", ["None", "Concert", "Sports", "Festival"])
+route_id = st.text_input("Route ID", value="R01")
 
-# Display Categorical Options
-for col in cat_cols:
-    unique_opts = X_df[col].dropna().unique().tolist()
-    input_data[col] = st.selectbox(f"{col}", options=unique_opts)
-
-# Display Numerical Options
-for col in num_cols:
-    min_val = int(X_df[col].min())
-    max_val = int(X_df[col].max())
-    mean_val = int(X_df[col].mean())
-    col_lower = col.lower()
-
-    if 'day' in col_lower:
-        input_data[col] = st.number_input(f"{col} (0=Mon, 6=Sun)", min_value=0, max_value=6, value=min(mean_val, 6), step=1)
-    elif 'peak' in col_lower:
-        input_data[col] = st.number_input(f"{col} (0=No, 1=Yes)", min_value=0, max_value=1, value=min(mean_val, 1), step=1)
-    else:
-        input_data[col] = st.number_input(f"{col}", min_value=min_val, max_value=max_val, value=mean_val, step=1)
-
-# Prediction Execution
-if st.button("Predict Delay Probability", type="primary"):
-    input_df = pd.DataFrame([input_data])
+# --- PREDICTION EXECUTION ---
+if st.button("Predict Delay"):
+    input_df = pd.DataFrame([{
+        "temperature_C": temperature_C,
+        "traffic_congestion_index": traffic_congestion_index,
+        "hour": hour,
+        "day_of_week": day_of_week,
+        "event_attendance_est": event_attendance_est,
+        "transport_type": transport_type,
+        "weather_condition": weather_condition,
+        "event_type": event_type,
+        "route_id": route_id
+    }])
     
-    probabilities = model_pipeline.predict_proba(input_df)[0]
-    delay_prob = probabilities[1] * 100 if len(probabilities) > 1 else probabilities[0] * 100
+    prediction = model_pipeline.predict(input_df)[0]
+    probability = model_pipeline.predict_proba(input_df)[:, 1][0]
     
-    st.markdown("---")
-    st.metric(label="Delay Probability", value=f"{delay_prob:.1f}%")
-    st.progress(int(delay_prob))
-
-    if delay_prob >= 50:
-        st.warning("⚠️ **High Risk:** High chance of delay under these route conditions.")
-    else:
-        st.success("✅ **Low Risk:** Route is expected to run on schedule.")
+    st.write(f"**Delayed Prediction:** {'Yes' if prediction == 1 else 'No'}")
+    st.write(f"**Delay Probability:** {probability:.1%}")
