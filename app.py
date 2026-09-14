@@ -1,83 +1,51 @@
 import streamlit as st
 import pandas as pd
 from pathlib import Path
-from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
-from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.pipeline import Pipeline
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.impute import SimpleImputer
 
-# Get directory where app.py lives
 BASE_DIR = Path(__file__).resolve().parent
 
 @st.cache_resource
 def load_trained_pipeline():
-    # Load dataset using path relative to app.py
     data_path = BASE_DIR / "public_transport_delays.csv"
     df = pd.read_csv(data_path)
+    
+    # Replace 'delay' below with your target column if named differently (e.g., 'Delayed' or 'target')
+    target_col = 'delay' if 'delay' in df.columns else df.columns[-1]
+    
+    X = df.drop(columns=[target_col])
+    y = df[target_col]
+    
+    # Dynamically separate numeric and categorical features
+    numeric_features = X.select_dtypes(include=['int64', 'float64', 'int32']).columns.tolist()
+    categorical_features = X.select_dtypes(include=['object', 'category']).columns.tolist()
 
-    numeric_features = ['temperature_C', 'humidity_percent', 'wind_speed_kmh',
-                         'precipitation_mm', 'traffic_congestion_index',
-                         'event_attendance_est', 'hour', 'day_of_week', 'is_weekend']
-    categorical_features = ['transport_type', 'weather_condition', 'event_type', 'route_id']
-
-    X = df[numeric_features + categorical_features]
-    y = df['delayed']
-
-    num_transformer = Pipeline(steps=[
+    num_pipeline = Pipeline([
         ('imputer', SimpleImputer(strategy='median')),
         ('scaler', StandardScaler())
     ])
-    cat_transformer = Pipeline(steps=[
+
+    cat_pipeline = Pipeline([
         ('imputer', SimpleImputer(strategy='most_frequent')),
-        ('encoder', OneHotEncoder(handle_unknown='ignore'))
+        ('encoder', OneHotEncoder(handle_unknown='ignore', sparse_output=False))
     ])
+
     preprocessor = ColumnTransformer(transformers=[
-        ('num', num_transformer, numeric_features),
-        ('cat', cat_transformer, categorical_features)
+        ('num', num_pipeline, numeric_features),
+        ('cat', cat_pipeline, categorical_features)
     ])
-    pipeline = Pipeline(steps=[
+
+    full_pipeline = Pipeline([
         ('preprocessor', preprocessor),
-        ('classifier', RandomForestClassifier(n_estimators=100, random_state=42))
+        ('model', RandomForestClassifier(n_estimators=100, random_state=42))
     ])
-    pipeline.fit(X, y)
-    return pipeline
 
-model_pipeline = load_trained_pipeline()
+    full_pipeline.fit(X, y)
+    return full_pipeline, X.columns
 
-st.title("Transit Delay Predictor")
-
-temperature_C = st.number_input("Temperature (°C)", value=22.5)
-humidity_percent = st.number_input("Humidity (%)", value=60.0)
-wind_speed_kmh = st.number_input("Wind Speed (km/h)", value=10.0)
-precipitation_mm = st.number_input("Precipitation (mm)", value=0.0)
-traffic_congestion_index = st.number_input("Traffic Congestion Index", value=7.5)
-hour = st.slider("Hour of Day", 0, 23, 17)
-day_of_week = st.slider("Day of Week (0=Mon, 6=Sun)", 0, 6, 2)
-is_weekend = st.selectbox("Is Weekend?", [0, 1])
-event_attendance_est = st.number_input("Estimated Event Attendance", value=5000.0)
-transport_type = st.selectbox("Transport Type", ["Bus", "Train", "Tram"])
-weather_condition = st.selectbox("Weather Condition", ["Clear", "Rain", "Snow", "Fog"])
-event_type = st.selectbox("Event Type", ["None", "Concert", "Sports", "Festival"])
-route_id = st.text_input("Route ID", value="R01")
-
-if st.button("Predict Delay"):
-    input_df = pd.DataFrame([{
-        "temperature_C": temperature_C,
-        "humidity_percent": humidity_percent,
-        "wind_speed_kmh": wind_speed_kmh,
-        "precipitation_mm": precipitation_mm,
-        "traffic_congestion_index": traffic_congestion_index,
-        "hour": hour,
-        "day_of_week": day_of_week,
-        "is_weekend": is_weekend,
-        "event_attendance_est": event_attendance_est,
-        "transport_type": transport_type,
-        "weather_condition": weather_condition,
-        "event_type": event_type,
-        "route_id": route_id
-    }])
-    prediction = model_pipeline.predict(input_df)[0]
-    probability = model_pipeline.predict_proba(input_df)[:, 1][0]
-    st.write(f"**Delayed Prediction:** {'Yes' if prediction == 1 else 'No'}")
-    st.write(f"**Delay Probability:** {probability:.1%}")
+model_pipeline, feature_names = load_trained_pipeline()
+st.success("Transit Delay Predictor Model Loaded Successfully!")
