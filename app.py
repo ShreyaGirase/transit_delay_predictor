@@ -7,6 +7,10 @@ from sklearn.pipeline import Pipeline
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.impute import SimpleImputer
 
+st.set_page_config(page_title="Transit Delay Predictor", layout="centered")
+st.title("🚌 Public Transit Delay Predictor")
+st.write("Enter the route details below to predict if the transit run will be delayed.")
+
 BASE_DIR = Path(__file__).resolve().parent
 
 @st.cache_resource
@@ -14,13 +18,11 @@ def load_trained_pipeline():
     data_path = BASE_DIR / "public_transport_delays.csv"
     df = pd.read_csv(data_path)
     
-    # Replace 'delay' below with your target column if named differently (e.g., 'Delayed' or 'target')
     target_col = 'delay' if 'delay' in df.columns else df.columns[-1]
     
     X = df.drop(columns=[target_col])
     y = df[target_col]
     
-    # Dynamically separate numeric and categorical features
     numeric_features = X.select_dtypes(include=['int64', 'float64', 'int32']).columns.tolist()
     categorical_features = X.select_dtypes(include=['object', 'category']).columns.tolist()
 
@@ -45,7 +47,34 @@ def load_trained_pipeline():
     ])
 
     full_pipeline.fit(X, y)
-    return full_pipeline, X.columns
+    return full_pipeline, X, numeric_features, categorical_features
 
-model_pipeline, feature_names = load_trained_pipeline()
-st.success("Transit Delay Predictor Model Loaded Successfully!")
+# Load pipeline and dataset features
+model_pipeline, X_df, num_cols, cat_cols = load_trained_pipeline()
+
+# --- UI INPUT FORM ---
+st.subheader("Route Parameters")
+input_data = {}
+
+# Build dynamic inputs for numerical columns
+for col in num_cols:
+    min_val = float(X_df[col].min())
+    max_val = float(X_df[col].max())
+    mean_val = float(X_df[col].mean())
+    input_data[col] = st.number_input(f"{col}", min_value=min_val, max_value=max_val, value=mean_val)
+
+# Build dynamic inputs for categorical columns
+for col in cat_cols:
+    unique_opts = X_df[col].dropna().unique().tolist()
+    input_data[col] = st.selectbox(f"{col}", options=unique_opts)
+
+# Prediction execution
+if st.button("Predict Delay", type="primary"):
+    input_df = pd.DataFrame([input_data])
+    prediction = model_pipeline.predict(input_df)[0]
+    
+    st.markdown("---")
+    if prediction == 1 or str(prediction).lower() in ['delayed', 'yes', 'true']:
+        st.error("🚨 **Prediction:** High likelihood of DELAY for this route.")
+    else:
+        st.success("✅ **Prediction:** On Schedule / Minimal Delay expected.")
